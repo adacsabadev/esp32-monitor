@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP32-S3 monitor</title>
+<style>
+body{font:14px system-ui,sans-serif;background:#0b3b3b;color:#ff9800;margin:0;padding:16px}
+h1{font-size:18px;margin:0 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.card{background:#0f4a4a;border:1px solid #146161;border-radius:8px;padding:12px}
+.card h2{font-size:12px;text-transform:uppercase;color:#ffb74d;margin:0 0 8px}
+.big{font-size:28px;color:#ff9800}
+.bar{background:#146161;height:8px;border-radius:4px;margin:4px 0 8px;overflow:hidden}
+.bar>i{display:block;height:100%;background:#4caf50}
+table{width:100%;border-collapse:collapse}
+td,th{padding:3px 6px;text-align:left;border-bottom:1px solid #146161}
+.k{color:#ffb74d}
+#err{color:#f66}
+nav{margin:0 0 12px}
+nav button,.btn{background:#146161;color:#ff9800;border:1px solid #1d8080;border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit;margin-right:6px}
+nav button.on{background:#ff9800;color:#0b3b3b}
+.chip{display:inline-block;padding:1px 7px;margin:2px;border-radius:10px;background:#146161;font-size:12px}
+.chip.on{background:#2e7d32;color:#fff}
+.sec{margin-top:12px}
+.sec h2{font-size:13px;text-transform:uppercase;color:#ffb74d;margin:0 0 6px}
+.sc{overflow-x:auto}
+td.m{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.dim{opacity:.6}
+.subnav{position:sticky;top:0;z-index:5;background:#0b3b3b;padding:8px 0;margin-top:6px;display:flex;flex-wrap:wrap;gap:6px}
+.subnav button{background:#0f4a4a;color:#ffb74d;border:1px solid #146161;border-radius:14px;padding:4px 12px;cursor:pointer;font:inherit}
+.subnav button.on{background:#ff9800;color:#0b3b3b;border-color:#ff9800}
+.sc{max-height:70vh;overflow:auto}
+</style></head><body>
+<h1>ESP32-S3 self monitor <span id="err"></span></h1>
+<nav><button id="tb1" class="on">Monitor</button><button id="tb2">Hardware</button></nav>
+<div id="v1">
+<div class="grid" id="cards"></div>
+<div class="card" style="margin-top:12px"><h2>Tasks</h2>
+<table id="tasks"></table></div>
+</div>
+<div id="v2" style="display:none">
+<div><button class="btn" id="bRef">Refresh all</button> <button class="btn" id="bWifi" data-s="net" style="display:none">Scan Wi-Fi</button><button class="btn" id="bBle" data-s="bt" style="display:none">Scan BLE</button><button class="btn" id="bI2c" data-s="bus" style="display:none">Scan I2C</button> <span id="hwerr" style="color:#f66"></span></div>
+<div id="hw"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let cur=1,hw=null,sc=null,hwT=null,hg='ov';
+function tab(n){cur=n;$('v1').style.display=n==1?'':'none';$('v2').style.display=n==2?'':'none';$('tb1').className=n==1?'on':'';$('tb2').className=n==2?'on':'';
+ if(n==1){tick();return}
+ if(!hw)hwRefresh()}
+async function hwRefresh(){
+ await loadHw();
+ await Promise.all(['wifi','ble','i2c'].map(t=>post(t)));
+ waitScans()}
+async function post(t){
+ try{const r=await fetch('/api/hw/scan?type='+t,{method:'POST',headers:{'X-Monitor':'1'}});if(!r.ok)$('hwerr').textContent='(scan '+t+' failed: HTTP '+r.status+')'}catch(e){$('hwerr').textContent='(scan '+t+' failed)'}}
+async function scanOne(t){await post(t);waitScans()}
+/* Polls only while a scan is in progress, then stops; the page never updates by itself otherwise. */
+async function waitScans(){
+ clearTimeout(hwT);
+ try{sc=await (await fetch('/api/hw/scan')).json();renderScans()}catch(e){return}
+ if(['wifi','ble','i2c'].some(t=>sc[t].state=='running'))hwT=setTimeout(waitScans,1500)}
+window.addEventListener('DOMContentLoaded',()=>{
+ $('tb1').addEventListener('click',()=>tab(1));$('tb2').addEventListener('click',()=>tab(2));
+ $('bRef').addEventListener('click',hwRefresh);
+ $('bWifi').addEventListener('click',()=>scanOne('wifi'));$('bBle').addEventListener('click',()=>scanOne('ble'));$('bI2c').addEventListener('click',()=>scanOne('i2c'));
+ $('hw').addEventListener('click',e=>{const b=e.target.closest('button[data-g]');if(b){hg=b.dataset.g;renderHw()}})});
+const kvx=o=>'<table>'+Object.entries(o).map(([k,v])=>'<tr><td class="k">'+esc(k)+'</td><td>'+esc(v)+'</td></tr>').join('')+'</table>';
+function tbl(h,rows){return '<div class="sc"><table><tr>'+h.map(x=>'<th>'+esc(x)+'</th>').join('')+'</tr>'+rows.map(r=>'<tr>'+r.map(x=>'<td>'+esc(x)+'</td>').join('')+'</tr>').join('')+'</table></div>'}
+const hx=(n,w)=>'0x'+n.toString(16).toUpperCase().padStart(w||0,'0');
+function sect(t,h){return '<div class="card sec"><h2>'+esc(t)+'</h2>'+h+'</div>'}
+function sstat(x,lbl){if(!x)return '';return '<div class="dim">'+lbl+': '+esc(x.state)+(x.err?' - '+esc(x.err):'')+(x.state=='done'?' ('+x.age_s+' s ago)':'')+'</div>'}
+async function loadHw(){
+ try{hw=await (await fetch('/api/hw')).json();$('hwerr').textContent='';renderHw()}catch(e){$('hwerr').textContent='(failed to load /api/hw)'}
+}
+const ONCHIP=['Xtensa LX7 dual core','ULP RISC-V coprocessor','ULP FSM coprocessor','Temperature sensor','2x 12-bit SAR ADC (20 channels)','14 capacitive touch pads','USB-Serial-JTAG','USB OTG','4x general SPI, 3x UART, 2x I2C, 2x I2S','LED PWM (8 ch), MCPWM x2, RMT, PCNT','TWAI (CAN)','LCD/CAM interface','SD/MMC host','DMA (GDMA)','AES, SHA, RSA, HMAC, Digital Signature, RNG','Wi-Fi 802.11 b/g/n','Bluetooth 5 LE (no Classic)'];
+function renderHw(){
+ if(!hw)return;const H={};const add=(g,x)=>{H[g]=(H[g]||'')+x};
+ const s=hw.soc;
+ add('ov','<div class="grid">');
+ add('ov',card('SoC',kvx({model:s.model+' '+s.rev,package:s.package,cores:s.cores,features:(s.features||[]).join(', '),'CPU':s.cpu_mhz+' MHz','APB':s.apb_mhz+' MHz','XTAL':s.xtal_mhz+' MHz','flash encryption':s.flash_enc,'secure boot':s.secure_boot, 'ESP-IDF':s.idf})));
+  add('ov',card('MAC addresses',kvx(s.mac||{})));
+  add('ov','</div>');
+  add('ov',sect('On-chip hardware (datasheet)',ONCHIP.map(x=>'<span class="chip">'+esc(x)+'</span>').join('')));
+  const f=hw.flash;
+  add('mem','<div class="grid">');
+  add('mem',card('Flash',kvx({size:kb(f.size),jedec:f.jedec,vendor:f.vendor,'unique id':f.uid,mode:f.mode,freq:f.freq})));
+  const p=hw.psram;
+  add('mem',card('PSRAM',p.present?kvx({size:kb(p.size),mode:p.mode,speed:p.mhz+' MHz'}):'not present'));
+  add('mem','</div>');
+  add('mem',sect('Memory regions',tbl(['region','total','free','min free','largest'],(hw.mem||[]).map(m=>[m.n,kb(m.total),kb(m.free),kb(m.min),  kb(m.largest)]))));
+   add('mem',sect('Partitions',tbl(['name','type','subtype','offset','size','running','encrypted'],(hw.parts||[]).map(x=>[x.n,x.t,x.s,hx(x.off,6),kb(x.size),x.run?'yes':'',x.enc?'yes':'']))));
+   const grp={};(hw.periph||[]).forEach(x=>{(grp[x.g]=grp[x.g]||[]).push(x)});
+   add('per',sect('Peripherals (clock enabled = green)',Object.entries(grp).map(([g,a])=>'<div><span class="k">'+esc(g)+'</span> '+a.map(x=>'<span class="chip'+(x.on?' on':'')+'">'+esc(x.n)+'</span>').join('')+'</div>').join('')));
+   if(hw.efuse){const e=hw.efuse,kp={0:'USER',1:'ECDSA_KEY',2:'XTS_AES_256_KEY_1',3:'XTS_AES_256_KEY_2',4:'XTS_AES_128_KEY',5:'HMAC_DOWN_ALL',6:'HMAC_DOWN_JTAG',7:'HMAC_DOWN_DIGITAL_SIGNATURE',8:'HMAC_UP',9:'SECURE_BOOT_DIGEST0',10:'SECURE_BOOT_DIGEST1',11:'SECURE_BOOT_DIGEST2'};
+  const rows=e.fields.map(x=>{let d=x.v;if(x.n.startsWith('KEY_PURPOSE'))d=x.v+' ('+(kp[x.v]||'?')+')';else if(x.bits>8)d=x.v+' ('+hx(x.v,0)+')';return [x.n,x.bits,d,x.v?'SET':'-']});
+  add('sec',sect('eFuses (read-only)','<div class="dim">Values are read from the eFuse shadow registers; nothing here can burn a fuse. Key block contents are never exposed.</div>'+tbl(['field','bits','value','state'],rows)+
+   '<div class="sec"><span class="k">Raw blocks</span></div>'+tbl(['block','words (hex, word0 first)'],e.blocks.map(b=>[b.n,b.w.map(w=>(w>>>0).toString(16).padStart(8,'0')).join(' ')]))))}
+ add('per',sect('GPIO',tbl(['pin','level','in','out','pu','pd','od','func','sig','drive','note'],(hw.gpio||[]).map(g=>[g.n,g.lv,g.ie,g.oe,g.pu,g.pd,g.od,g.fun,g.sig,g.drv,g.note]))));
+ add('net',sect('Network interfaces',tbl(['name','up','mac','ip','mask','gw','dns','host','dhcp'],(hw.net||[]).map(n=>[n.name,n.up?'yes':'no',n.mac,n.ip,n.mask,n.gw,n.dns,n.host,n.dhcp_client?'yes':'no']))));
+ const w=hw.wifi;
+ let wh=w.init?kvx({mode:w.mode,protocols:w.protocols,country:w.country,bandwidth:w.bandwidth,'power save':w.power_save,'tx power':w.tx_power,channel:w.channel,'connected AP':w.ap?w.ap.ssid+' ('+w.ap.bssid+', '+w.ap.rssi+' dBm, ch '+w.ap.ch+', '+w.ap.auth+')':'-'}):'not initialised';
+ if(w.clients&&w.clients.length)wh+=tbl(['client MAC','RSSI'],w.clients.map(c=>[c.mac,c.rssi]));
+ add('net',sect('Wi-Fi radio',wh));
+ add('net',secScan('wifi'));
+ const b=hw.bt;
+ add('bt',sect('Bluetooth LE',kvx({controller:b.ble?'NimBLE (observer)':'unavailable',synced:b.synced,'own address':b.addr,'scan duration':b.scan_ms+' ms',error:b.err||'-'})));
+ add('bt',secScan('ble'));
+ add('bus',secScan('i2c'));
+ const G=[['ov','Overview'],['mem','Memory & storage'],['per','Peripherals & GPIO'],['net','Network & Wi-Fi'],['bt','Bluetooth'],['bus','Buses (I2C)'],['sec','Security & eFuses']];
+ if(!H[hg])hg='ov';
+ $('hw').innerHTML='<div class="subnav">'+G.map(([k,t])=>'<button class="'+(k==hg?'on':'')+'" data-g="'+k+'">'+t+'</button>').join('')+'</div>'+(H[hg]||'');
+ document.querySelectorAll('button[data-s]').forEach(b=>{b.style.display=b.dataset.s==hg?'':'none'});
+}
+function secScan(t){
+ const x=sc&&sc[t];let body='';
+ if(t=='wifi')body=sect('Nearby Wi-Fi networks',sstat(x,'scan')+(x?tbl(['SSID','BSSID','ch','RSSI','auth','b','g','n','LR','WPS'],x.aps.map(a=>[a.ssid,a.bssid,a.ch,a.rssi,a.auth,a.b,a.g,a.n,a.lr,a.wps])):''));
+ else if(t=='ble')body=sect('Nearby BLE devices',sstat(x,'scan')+(x?tbl(['address','type','RSSI','name','vendor','TX pwr','connectable','hits','services'],x.devs.map(a=>[a.addr,a.atype,a.rssi,a.name,a.vendor||(a.company>=0?hx(a.company,4):''),a.txp!=null?a.txp:'',a.conn?'yes':'',a.hits,(a.uuids||[]).map(u=>hx(u,4)).join(' ')])):''));
+ else body=sect('I2C bus (SDA '+hw.i2c.sda+', SCL '+hw.i2c.scl+')',sstat(x,'scan')+(x?(x.devs.length?tbl(['address','possible device'],x.devs.map(a=>[hx(a.addr,2),a.hint])):'<div class="dim">no devices found</div>'):''));
+ return '<div id="s_'+t+'">'+body+'</div>'}
+/* Scan updates touch only the scan sections, so other panels (eFuses, GPIO...) keep their scroll position. */
+function renderScans(){
+ if(!hw)return;
+ ['wifi','ble','i2c'].forEach(t=>{const e=$('s_'+t);if(!e)return;const n=document.createElement('div');n.innerHTML=secScan(t);const h=n.firstChild.innerHTML;if(e.innerHTML!==h)e.innerHTML=h})}
+
+function bar(p){return '<div class="bar"><i style="width:'+Math.min(100,p)+'%;background:'+(p>85?'#f44336':p>60?'#ff9800':'#4caf50')+'"></i></div>'}
+function kv(o){return '<table>'+Object.entries(o).map(([k,v])=>'<tr><td class="k">'+k+'</td><td>'+v+'</td></tr>').join('')+'</table>'}
+function card(t,h){return '<div class="card"><h2>'+t+'</h2>'+h+'</div>'}
+function kb(n){return n>=1048576?(n/1048576).toFixed(2)+' MB':(n/1024).toFixed(1)+' kB'}
+function up(s){const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return (d?d+'d ':'')+h+'h '+m+'m '+(s%60)+'s'}
+function heap(h){const u=100*(h.total-h.free)/h.total;return bar(u)+kv({used:kb(h.total-h.free)+' / '+kb(h.total),'min free ever':kb(h.min_free),'largest block':kb(h.largest)})}
+async function tick(){
+ if(cur!=1)return;
+ try{
+  const s=await (await fetch('/api/stats')).json();
+  $('err').textContent='';
+  let c='';
+  c+=card('Temperature &amp; uptime','<div class="big">'+s.temp_c.toFixed(1)+' &deg;C</div><div class="big" style="font-size:20px;margin-top:4px">'+up(s.uptime_s)+'</div>'+kv({'last reset':s.reset_reason}));
+  c+=card('CPU load ('+s.cpu_mhz+' MHz)',s.cores.map((p,i)=>'core '+i+': '+p.toFixed(0)+'%'+bar(p)).join(''));
+  c+=card('Internal RAM',heap(s.heap));
+  if(s.psram.total)c+=card('PSRAM',heap(s.psram));
+  c+=card('Wi-Fi',kv(s.wifi));
+  c+=card('ULP coprocessor (RISC-V)','<div class="big" style="color:'+(s.ulp.running?'#4caf50':'#f44336')+'">'+(s.ulp.running?'running':'stopped')+'</div>'+kv({'heartbeat counter':s.ulp.counter,'loops / second':s.ulp.rate,'loop period':s.ulp.period_ms+' ms'}));
+  c+=card('Chip',kv(s.chip));
+  $('cards').innerHTML=c;
+  $('tasks').innerHTML='<tr><th>name</th><th>state</th><th>prio</th><th>CPU %</th><th>stack free</th></tr>'+
+   s.tasks.map(t=>'<tr><td>'+t.name+'</td><td>'+t.state+'</td><td>'+t.prio+'</td><td>'+t.cpu.toFixed(1)+'</td><td>'+t.stack_free+' B</td></tr>').join('');
+ }catch(e){$('err').textContent='(connection lost)'}
+}
+tick();setInterval(tick,1000);
+</script></body></html>

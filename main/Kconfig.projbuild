@@ -1,0 +1,28 @@
+menu "Monitor"
+
+    config MON_WIFI_SSID
+        string "Wi-Fi SSID to join (empty = start own access point)"
+        default ""
+
+    config MON_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default ""
+
+    config MON_AP_PASSWORD
+        string "Password of the fallback access point 'esp32s3-monitor' (min 8 chars)"
+        default "change-me-please"
+
+    config MON_I2C_SDA
+        int "Hardware page I2C scan: SDA GPIO"
+        range 0 48
+        default 8
+        help
+            Pin driven as open-drain SDA when you press "Scan I2C" on the Hardware page.
+            Nothing is driven until the button is pressed.
+
+    config MON_I2C_SCL
+        int "Hardware page I2C scan: SCL GPIO"
+        range 0 48
+        default 9
+
+endmenu

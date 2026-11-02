@@ -1,0 +1,10 @@
+build/
+managed_components/
+dependencies.lock
+.clangd
+.vscode/
+sdkconfig
+sdkconfig.old
+
+# Real Wi-Fi credentials: copy main/wifi_credentials.h.example to this name and fill it in
+main/wifi_credentials.h
