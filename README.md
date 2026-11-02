@@ -14,6 +14,12 @@ Self-monitoring firmware for the ESP32-S3 (ESP-IDF 6.1). The board serves a web 
 
 The Hardware tab loads once and scans once when first opened. It does not refresh by itself. Use **Refresh all** or the scan button of the current section to update.
 
+- **Benchmark**: on-demand tests, run from the Benchmark tab (results stay until re-run):
+  - **CPU**: Whetstone (float and double) and a Dhrystone-like test, on 1 core and on both cores.
+  - **Memory**: DRAM and PSRAM read/write/copy bandwidth, and pointer-chasing latency against working-set size (shows the 32 KB data-cache boundary).
+  - **Crypto**: AES-128/256 (CBC, GCM), SHA-1/256/512, MD5, CRC32, RNG, RSA modexp and ECDSA P-256. Where the chip has a hardware engine (AES, SHA, RSA/MPI) it shows software vs hardware side by side; the software reference output is checked against the hardware result. Algorithms without an engine (MD5, CRC32, ECC) are software only. The HMAC and DS engines are not used because they need eFuse keys.
+  - Figures are approximate: Wi-Fi and the web server keep running during a test.
+
 ## HTTP API
 
 | Endpoint | Description |
@@ -23,6 +29,8 @@ The Hardware tab loads once and scans once when first opened. It does not refres
 | `GET /api/hw` | Static hardware info (JSON) |
 | `GET /api/hw/scan` | Latest Wi-Fi, BLE and I2C scan results (JSON) |
 | `POST /api/hw/scan?type=wifi\|ble\|i2c` | Start a scan. Requires the header `X-Monitor: 1` (403 without it) |
+| `GET /api/bench` | Latest benchmark results and running state (JSON) |
+| `POST /api/bench?type=cpu\|mem\|crypto` | Start a benchmark (one at a time, 409 if busy). Requires `X-Monitor: 1` |
 
 ## Build
 

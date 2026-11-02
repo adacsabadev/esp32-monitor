@@ -30,7 +30,7 @@ td.m{font-family:ui-monospace,Consolas,monospace;font-size:12px}
 .sc{max-height:70vh;overflow:auto}
 </style></head><body>
 <h1>ESP32-S3 self monitor <span id="err"></span></h1>
-<nav><button id="tb1" class="on">Monitor</button><button id="tb2">Hardware</button></nav>
+<nav><button id="tb1" class="on">Monitor</button><button id="tb2">Hardware</button><button id="tb3">Benchmark</button></nav>
 <div id="v1">
 <div class="grid" id="cards"></div>
 <div class="card" style="margin-top:12px"><h2>Tasks</h2>
@@ -40,13 +40,43 @@ td.m{font-family:ui-monospace,Consolas,monospace;font-size:12px}
 <div><button class="btn" id="bRef">Refresh all</button> <button class="btn" id="bWifi" data-s="net" style="display:none">Scan Wi-Fi</button><button class="btn" id="bBle" data-s="bt" style="display:none">Scan BLE</button><button class="btn" id="bI2c" data-s="bus" style="display:none">Scan I2C</button> <span id="hwerr" style="color:#f66"></span></div>
 <div id="hw"></div>
 </div>
+<div id="v3" style="display:none">
+<div><button class="btn" data-b="cpu">Run CPU</button><button class="btn" data-b="mem">Run memory</button><button class="btn" data-b="crypto">Run crypto</button><button class="btn" id="bAll">Run all</button> <span id="bstat" class="dim"></span></div>
+<p class="dim" style="margin:6px 0">Results stay until you run a test again. Wi-Fi and the web server keep running during tests, so figures are approximate. Software figures use plain C reference code (-O2); hardware means the AES/SHA/RSA engines.</p>
+<div id="bout"></div>
+</div>
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let cur=1,hw=null,sc=null,hwT=null,hg='ov';
-function tab(n){cur=n;$('v1').style.display=n==1?'':'none';$('v2').style.display=n==2?'':'none';$('tb1').className=n==1?'on':'';$('tb2').className=n==2?'on':'';
+function tab(n){cur=n;for(let i=1;i<=3;i++){$('v'+i).style.display=n==i?'':'none';$('tb'+i).className=n==i?'on':''}
  if(n==1){tick();return}
+ if(n==3){benchLoad();return}
  if(!hw)hwRefresh()}
+let bT=null,bq=[];
+async function benchLoad(){
+ clearTimeout(bT);let d;
+ try{d=await (await fetch('/api/bench',{cache:'no-store'})).json()}catch(e){$('bstat').textContent='(unreachable)';return}
+ renderBench(d);
+ if(d.running)bT=setTimeout(benchLoad,1500);
+ else if(bq.length)benchRun(bq.shift())}
+async function benchRun(t){
+ try{const r=await fetch('/api/bench?type='+t,{method:'POST',headers:{'X-Monitor':'1'}});if(!r.ok){$('bstat').textContent='(HTTP '+r.status+')';bq=[];return}}catch(e){bq=[];return}
+ benchLoad()}
+const nf=v=>v==null?'—':(v>=100?v.toFixed(0):v>=10?v.toFixed(1):v.toFixed(2));
+function renderBench(d){
+ $('bstat').textContent=d.running?'running: '+d.prog+'…':'idle';
+ document.querySelectorAll('[data-b],#bAll').forEach(b=>b.disabled=d.running);
+ const gs={};d.rows.forEach(r=>{(gs[r.g]=gs[r.g]||[]).push(r)});
+ let h='';
+ for(const g in gs){
+  const cpu=g=='CPU',cr=gs[g][0].t=='x',two=cpu||cr;
+  const hd=cpu?['test','1 core','2 cores','scaling','unit','note']:cr?['test','software','hardware','HW/SW','unit','note']:['test','value','','','unit','note'];
+  h+='<div class="sec"><h2>'+esc(g)+'</h2><div class="sc"><table><tr>'+(two?hd:['test','value','unit','note']).map(x=>'<th>'+esc(x)+'</th>').join('')+'</tr>'+
+   gs[g].map(r=>{
+    const ratio=(r.a!=null&&r.b!=null&&r.a>0)?(r.b/r.a).toFixed(1)+'×':'—';
+    return '<tr><td>'+esc(r.n)+'</td>'+(two?'<td>'+nf(r.a)+'</td><td>'+nf(r.b)+'</td><td>'+ratio+'</td>':'<td>'+nf(r.a)+'</td>')+'<td class="dim">'+esc(r.u)+'</td><td class="dim">'+esc(r.note)+'</td></tr>'}).join('')+'</table></div></div>'}
+ $('bout').innerHTML=h||'<p class="dim">No results yet. Press a Run button.</p>'}
 async function hwRefresh(){
  await loadHw();
  await Promise.all(['wifi','ble','i2c'].map(t=>post(t)));
@@ -62,6 +92,9 @@ async function waitScans(){
 window.addEventListener('DOMContentLoaded',()=>{
  $('tb1').addEventListener('click',()=>tab(1));$('tb2').addEventListener('click',()=>tab(2));
  $('bRef').addEventListener('click',hwRefresh);
+ $('tb3').addEventListener('click',()=>tab(3));
+ $('v3').addEventListener('click',e=>{const b=e.target.closest('button[data-b]');if(b){bq=[];benchRun(b.dataset.b)}});
+ $('bAll').addEventListener('click',()=>{bq=['mem','crypto'];benchRun('cpu')});
  $('bWifi').addEventListener('click',()=>scanOne('wifi'));$('bBle').addEventListener('click',()=>scanOne('ble'));$('bI2c').addEventListener('click',()=>scanOne('i2c'));
  $('hw').addEventListener('click',e=>{const b=e.target.closest('button[data-g]');if(b){hg=b.dataset.g;renderHw()}})});
 const kvx=o=>'<table>'+Object.entries(o).map(([k,v])=>'<tr><td class="k">'+esc(k)+'</td><td>'+esc(v)+'</td></tr>').join('')+'</table>';

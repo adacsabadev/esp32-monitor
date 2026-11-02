@@ -36,6 +36,7 @@ The build produces `build\esp32s3_monitor.bin` (about 80% of the 1 MB app partit
 ## Hardware info tab (main/hwinfo.c, UI in main/index.html)
 - `GET /api/hw` static HW info incl. read-only eFuse widget (never burns fuses; key blocks never exposed). `GET /api/hw/scan` = scan results. `POST /api/hw/scan?type=wifi|ble|i2c` needs header `X-Monitor: 1`.
 - NEVER enable flash encryption / secure boot / write eFuses (user request: it bricks the device).
+- Benchmark tab (main/bench.c): `GET /api/bench`, `POST /api/bench?type=cpu|mem|crypto` (header `X-Monitor: 1`, 409 if busy). Runs in its own task on core 1; bench.c is built with -O2. Only plain AES/SHA/MPI engines are used, never HMAC/DS/key manager. Software AES/SHA are own reference code checked against HW output; ChaCha20 is not enabled in mbedTLS.
 - BT = NimBLE observer only (BT Classic does not exist on S3). I2C pins are Kconfig `MON_I2C_SDA/SCL` (default 8/9, unconfirmed wiring).
 - Custom `partitions.csv` (3 MB factory app). `sdkconfig` overrides `sdkconfig.defaults`: edit both, don't delete sdkconfig (keeps flash mode dio).
 - JTAG flash recipe (user prefers JTAG): from `build\`, with OPENOCD_SCRIPTS set: `openocd -f board/esp32s3-builtin.cfg -c "adapter speed 2000" -c "init; reset halt" -c "program_esp_bins . flasher_args.json verify exit"`; then reset via COM6 RTS. Env setup script recipe is in the Build section.

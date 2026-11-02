@@ -21,6 +21,7 @@
 #include "driver/temperature_sensor.h"
 #include "wifi_credentials.h"
 #include "hwinfo.h"
+#include "bench.h"
 #include "ulp_riscv.h"
 #include "ulp_main.h"
 
@@ -255,6 +256,7 @@ static void start_server(void)
     httpd_register_uri_handler(srv, &root);
     httpd_register_uri_handler(srv, &api);
     hwinfo_register(srv);
+    bench_register(srv);
 }
 
 static void scan_report(void)
@@ -346,5 +348,6 @@ void app_main(void)
     xTaskCreate(sampler_task, "sampler", 4096, NULL, 5, NULL);
     wifi_start();
     hwinfo_start();
+    bench_start();
     start_server();
 }
